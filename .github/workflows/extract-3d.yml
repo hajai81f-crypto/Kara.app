@@ -1,10 +1,7 @@
-name: Extract 3D.zip
+name: Extract 3D ZIP
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "3D.zip"
 
 permissions:
   contents: write
@@ -17,19 +14,50 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract 3D.zip to repository root
+      - name: Find and extract ZIP
+        shell: bash
         run: |
+          set -e
+
+          echo "Searching for ZIP files..."
+
+          ZIP_FILE=$(find . -type f \( -iname "3D.zip" -o -iname "*.zip" \) -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file found."
+            find . -maxdepth 3 -type f -print
+            exit 1
+          fi
+
+          echo "Found: $ZIP_FILE"
+
           rm -rf extracted
           mkdir extracted
 
-          unzip -o "3D.zip" -d extracted
+          unzip -o "$ZIP_FILE" -d extracted
 
-          # نقل محتويات المجلد الناتج إلى جذر المستودع
-          shopt -s dotglob
-          cp -R extracted/* .
+          echo "ZIP contents:"
+          find extracted -maxdepth 3 -print
+
+          # إذا كان داخل ZIP مجلد واحد، نأخذ محتوياته مباشرة
+          ITEMS=$(find extracted -mindepth 1 -maxdepth 1 -print)
+
+          COUNT=$(echo "$ITEMS" | wc -l)
+
+          if [ "$COUNT" -eq 1 ] && [ -d "$ITEMS" ]; then
+            echo "Single folder detected. Moving its contents to repository root."
+            shopt -s dotglob
+            cp -R "$ITEMS"/* .
+          else
+            echo "Moving ZIP contents to repository root."
+            shopt -s dotglob
+            cp -R extracted/* .
+          fi
 
           rm -rf extracted
-          rm -f "3D.zip"
+
+          # حذف ملف ZIP بعد فكّه
+          rm -f "$ZIP_FILE"
 
       - name: Commit changes
         run: |
@@ -39,7 +67,7 @@ jobs:
           git add -A
 
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "No changes."
           else
             git commit -m "Extract 3D.zip to repository root"
             git push
