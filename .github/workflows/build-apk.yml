@@ -1,0 +1,59 @@
+name: Build Arrow Legends 3D APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: arrow-legends-3d
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.3.0
+          use-dotnet: false
+
+      - name: Verify project
+        run: |
+          test -f project.godot
+          test -f export_presets.cfg
+          echo "Godot project detected."
+
+      - name: Run tests
+        run: |
+          godot --headless --script tests/run_tests.gd
+
+      - name: Import project
+        run: |
+          godot --headless --editor --quit
+
+      - name: Export Android APK
+        run: |
+          mkdir -p builds/android
+          godot --headless --export-debug "Android" builds/android/ArrowLegends3D.apk
+
+      - name: Verify APK
+        run: |
+          test -f builds/android/ArrowLegends3D.apk
+          ls -lh builds/android/ArrowLegends3D.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arrow-Legends-3D-APK
+          path: arrow-legends-3d/builds/android/ArrowLegends3D.apk
+          if-no-files-found: error
