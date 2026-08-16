@@ -1,0 +1,40 @@
+name: Extract Game ZIP
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "arrow-legends-3d.zip"
+      - ".github/workflows/unzip.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract ZIP
+        run: |
+          mkdir -p extracted
+          unzip -o "arrow-legends-3d.zip" -d extracted
+
+      - name: Copy extracted files
+        run: |
+          cp -a extracted/. .
+          rm -rf extracted
+          rm -f "arrow-legends-3d.zip"
+
+      - name: Commit extracted project
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet || git commit -m "Extract Arrow Legends 3D project"
+          git push
