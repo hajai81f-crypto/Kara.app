@@ -1,13 +1,10 @@
 name: Extract Game ZIP
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-    paths:
-      - "arrow-legends-3d.zip"
-      - ".github/workflows/unzip.yml"
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,22 +16,113 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Extract ZIP
+      - name: Find ZIP file
+        shell: bash
         run: |
-          mkdir -p extracted
-          unzip -o "arrow-legends-3d.zip" -d extracted
+          echo "=== Repository files ==="
+          ls -lah
 
-      - name: Copy extracted files
+          echo "=== Searching for ZIP files ==="
+          find . -maxdepth 3 -type f \( -iname "*.zip" \) -print
+
+      - name: Install extraction tools
         run: |
-          cp -a extracted/. .
-          rm -rf extracted
-          rm -f "arrow-legends-3d.zip"
+          sudo apt-get update
+          sudo apt-get install -y unzip p7zip-full
+
+      - name: Validate ZIP
+        shell: bash
+        run: |
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file was found."
+            exit 1
+          fi
+
+          echo "ZIP found: $ZIP_FILE"
+
+          echo "=== ZIP information ==="
+          file "$ZIP_FILE"
+
+          echo "=== Testing ZIP ==="
+          unzip -t "$ZIP_FILE"
+
+      - name: Extract Game
+        shell: bash
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+
+          echo "Extracting: $ZIP_FILE"
+
+          mkdir -p extracted_game
+
+          7z x "$ZIP_FILE" -oextracted_game -y
+
+          echo "=== Extracted files ==="
+          find extracted_game -maxdepth 4 -type f | head -n 200
+
+      - name: Move project to repository root
+        shell: bash
+        run: |
+          set -e
+
+          shopt -s dotglob nullglob
+
+          ROOT="extracted_game"
+
+          # If ZIP contains one main folder, enter it.
+          DIRECTORIES=("$ROOT"/*)
+
+          if [ ${#DIRECTORIES[@]} -eq 1 ] && [ -d "${DIRECTORIES[0]}" ]; then
+            POSSIBLE_ROOT="${DIRECTORIES[0]}"
+
+            if [ -f "$POSSIBLE_ROOT/project.godot" ]; then
+              ROOT="$POSSIBLE_ROOT"
+            fi
+          fi
+
+          echo "Using project root: $ROOT"
+
+          # Remove ZIP and temporary extraction folder from final project.
+          rm -f ./*.zip
+
+          # Copy project files to repository root.
+          cp -a "$ROOT"/. .
+
+          rm -rf extracted_game
+
+          echo "=== Final project structure ==="
+          find . -maxdepth 3 -type f \
+            ! -path "./.git/*" \
+            | sort | head -n 300
+
+      - name: Check Godot project
+        shell: bash
+        run: |
+          if [ -f "project.godot" ]; then
+            echo "SUCCESS: project.godot found."
+          else
+            echo "WARNING: project.godot was not found."
+            echo "The ZIP may not contain a Godot project."
+          fi
 
       - name: Commit extracted project
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add .
-          git diff --cached --quiet || git commit -m "Extract Arrow Legends 3D project"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Extract Arrow Legends 3D project"
+            git push
+          fi
