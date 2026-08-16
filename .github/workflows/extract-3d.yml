@@ -1,74 +1,94 @@
-name: Extract 3D ZIP
+name: Build & Test
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: {}
 
-permissions:
-  contents: write
+env:
+  GODOT_VERSION: "4.3"
 
 jobs:
-  extract:
+  test:
+    name: Validate & Run Tests
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Find and extract ZIP
-        shell: bash
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: ${{ env.GODOT_VERSION }}
+          use-dotnet: false
+
+      - name: Verify Godot install
+        run: godot --version
+
+      - name: Import project (headless)
+        run: godot --headless --editor --quit-after 60 || true
+
+      - name: Run test suite
+        run: godot --headless --script tests/run_tests.gd
+
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: ${{ env.GODOT_VERSION }}
+          use-dotnet: false
+
+      - name: Install Android build template
+        run: godot --headless --install-android-build-template
+
+      # Debug keystore lets CI produce an installable, unsigned-for-release
+      # test APK without any real signing secrets committed to the repo.
+      - name: Generate debug keystore
         run: |
-          set -e
+          keytool -genkey -v -keystore debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-          echo "Searching for ZIP files..."
-
-          ZIP_FILE=$(find . -type f \( -iname "3D.zip" -o -iname "*.zip" \) -print -quit)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file found."
-            find . -maxdepth 3 -type f -print
-            exit 1
-          fi
-
-          echo "Found: $ZIP_FILE"
-
-          rm -rf extracted
-          mkdir extracted
-
-          unzip -o "$ZIP_FILE" -d extracted
-
-          echo "ZIP contents:"
-          find extracted -maxdepth 3 -print
-
-          # إذا كان داخل ZIP مجلد واحد، نأخذ محتوياته مباشرة
-          ITEMS=$(find extracted -mindepth 1 -maxdepth 1 -print)
-
-          COUNT=$(echo "$ITEMS" | wc -l)
-
-          if [ "$COUNT" -eq 1 ] && [ -d "$ITEMS" ]; then
-            echo "Single folder detected. Moving its contents to repository root."
-            shopt -s dotglob
-            cp -R "$ITEMS"/* .
-          else
-            echo "Moving ZIP contents to repository root."
-            shopt -s dotglob
-            cp -R extracted/* .
-          fi
-
-          rm -rf extracted
-
-          # حذف ملف ZIP بعد فكّه
-          rm -f "$ZIP_FILE"
-
-      - name: Commit changes
+      - name: Configure debug signing
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p ~/.config/godot
+          cat >> export_presets.cfg <<'EOF'
 
-          git add -A
+          [preset.0.options.override]
+          keystore/debug="debug.keystore"
+          keystore/debug_user="androiddebugkey"
+          keystore/debug_password="android"
+          EOF
 
-          if git diff --cached --quiet; then
-            echo "No changes."
-          else
-            git commit -m "Extract 3D.zip to repository root"
-            git push
-          fi
+      - name: Import project
+        run: godot --headless --editor --quit-after 60 || true
+
+      - name: Export Android APK (debug)
+        run: |
+          mkdir -p builds/android
+          godot --headless --export-debug "Android" builds/android/ArrowLegends3D.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArrowLegends3D-debug-apk
+          path: builds/android/ArrowLegends3D.apk
+          if-no-files-found: error
+
+# NOTE: no real signing secrets are stored in this repo. For a Google
+# Play release build (AAB), add these repository secrets and a signing
+# step before the export: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
