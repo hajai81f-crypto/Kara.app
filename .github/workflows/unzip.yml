@@ -1,10 +1,7 @@
-name: Extract Game ZIP
+name: Extract Arrow Legends
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: write
@@ -14,115 +11,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Find ZIP file
-        shell: bash
+      - name: Check ZIP
         run: |
-          echo "=== Repository files ==="
+          echo "Files in repository:"
           ls -lah
 
-          echo "=== Searching for ZIP files ==="
-          find . -maxdepth 3 -type f \( -iname "*.zip" \) -print
-
-      - name: Install extraction tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip p7zip-full
-
-      - name: Validate ZIP
-        shell: bash
-        run: |
-          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file was found."
+          if [ ! -f "arrow-legends-3d.zip" ]; then
+            echo "ERROR: arrow-legends-3d.zip NOT FOUND"
             exit 1
           fi
 
-          echo "ZIP found: $ZIP_FILE"
+          echo "ZIP FOUND:"
+          ls -lh "arrow-legends-3d.zip"
 
-          echo "=== ZIP information ==="
-          file "$ZIP_FILE"
-
-          echo "=== Testing ZIP ==="
-          unzip -t "$ZIP_FILE"
-
-      - name: Extract Game
-        shell: bash
+      - name: Extract
         run: |
-          set -e
+          mkdir -p game
 
-          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+          unzip -o "arrow-legends-3d.zip" -d game
 
-          echo "Extracting: $ZIP_FILE"
+          echo "Extraction completed."
 
-          mkdir -p extracted_game
-
-          7z x "$ZIP_FILE" -oextracted_game -y
-
-          echo "=== Extracted files ==="
-          find extracted_game -maxdepth 4 -type f | head -n 200
-
-      - name: Move project to repository root
-        shell: bash
+      - name: Find Godot project
         run: |
-          set -e
+          echo "Searching for project.godot..."
 
-          shopt -s dotglob nullglob
+          find game -name "project.godot" -print
 
-          ROOT="extracted_game"
+      - name: Move project
+        run: |
+          PROJECT=$(find game -name "project.godot" -print -quit)
 
-          # If ZIP contains one main folder, enter it.
-          DIRECTORIES=("$ROOT"/*)
-
-          if [ ${#DIRECTORIES[@]} -eq 1 ] && [ -d "${DIRECTORIES[0]}" ]; then
-            POSSIBLE_ROOT="${DIRECTORIES[0]}"
-
-            if [ -f "$POSSIBLE_ROOT/project.godot" ]; then
-              ROOT="$POSSIBLE_ROOT"
-            fi
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: project.godot was not found inside ZIP."
+            exit 1
           fi
 
-          echo "Using project root: $ROOT"
+          PROJECT_DIR=$(dirname "$PROJECT")
 
-          # Remove ZIP and temporary extraction folder from final project.
-          rm -f ./*.zip
+          echo "Godot project found at:"
+          echo "$PROJECT_DIR"
 
-          # Copy project files to repository root.
-          cp -a "$ROOT"/. .
+          cp -a "$PROJECT_DIR"/. .
 
-          rm -rf extracted_game
+          rm -rf game
+          rm -f "arrow-legends-3d.zip"
 
-          echo "=== Final project structure ==="
-          find . -maxdepth 3 -type f \
-            ! -path "./.git/*" \
-            | sort | head -n 300
-
-      - name: Check Godot project
-        shell: bash
-        run: |
-          if [ -f "project.godot" ]; then
-            echo "SUCCESS: project.godot found."
-          else
-            echo "WARNING: project.godot was not found."
-            echo "The ZIP may not contain a Godot project."
-          fi
-
-      - name: Commit extracted project
-        shell: bash
+      - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add .
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Extract Arrow Legends 3D project"
-            git push
-          fi
+          git commit -m "Extract Arrow Legends 3D project" || echo "Nothing to commit"
+
+          git push
