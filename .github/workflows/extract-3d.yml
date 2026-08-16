@@ -1,0 +1,46 @@
+name: Extract 3D.zip
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "3D.zip"
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract 3D.zip to repository root
+        run: |
+          rm -rf extracted
+          mkdir extracted
+
+          unzip -o "3D.zip" -d extracted
+
+          # نقل محتويات المجلد الناتج إلى جذر المستودع
+          shopt -s dotglob
+          cp -R extracted/* .
+
+          rm -rf extracted
+          rm -f "3D.zip"
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Extract 3D.zip to repository root"
+            git push
+          fi
